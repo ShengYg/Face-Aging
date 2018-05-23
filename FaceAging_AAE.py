@@ -18,7 +18,7 @@ from ops import *
 import cPickle
 
 
-class FaceAging(object):
+class FaceAging_AAE(object):
     def __init__(
         self,
         session,  # TensorFlow session
