@@ -1,0 +1,6 @@
+*.pyc
+
+data/
+demo/
+init_model/
+save/
