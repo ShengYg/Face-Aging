@@ -4,7 +4,7 @@ import numpy as np
 from scipy.misc import imread, imresize, imsave
 
 
-def conv2d(input_map, num_output_channels, size_kernel=5, stride=2, padding='SAME', name='conv2d'):
+def conv2d(input_map, num_output_channels, size_kernel=4, stride=2, padding='SAME', name='conv2d'):
     with tf.variable_scope(name):
         # stddev = np.sqrt(2.0 / (np.sqrt(input_map.get_shape()[-1].value * num_output_channels) * size_kernel ** 2))
         stddev = .02
@@ -43,7 +43,7 @@ def fc(input_vector, num_output_length, name='fc'):
         return tf.matmul(input_vector, w) + b
 
 
-def deconv2d(input_map, output_shape, size_kernel=5, stride=2, padding='SAME', name='deconv2d'):
+def deconv2d(input_map, output_shape, size_kernel=4, stride=2, padding='SAME', name='deconv2d'):
     with tf.variable_scope(name):
         # stddev = np.sqrt(1.0 / (np.sqrt(input_map.get_shape()[-1].value * output_shape[-1]) * size_kernel ** 2))
         stddev = .02
@@ -80,21 +80,6 @@ def concat_label(x, label, duplicate=1):
     elif len(x_shape) == 4:
         label = tf.reshape(label, [x_shape[0], 1, 1, label_shape[-1]])
         return tf.concat(axis=3, values=[x, label*tf.ones([x_shape[0], x_shape[1], x_shape[2], label_shape[-1]])])
-
-
-def load_image(
-    image_path,  # path of a image
-    image_size=64,  # expected size of the image
-    image_value_range=(-1, 1),  # expected pixel value range of the image
-    is_gray=False,  # gray scale or color image
-):
-    if is_gray:
-        image = imread(image_path, mode='L').astype(np.float32)
-    else:
-        image = imread(image_path, mode='RGB').astype(np.float32)
-    image = imresize(image, [image_size, image_size])
-    image = image.astype(np.float32) * (image_value_range[-1] - image_value_range[0]) / 255.0 + image_value_range[0]
-    return image
 
 
 def save_batch_images(
