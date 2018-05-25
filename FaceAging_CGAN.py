@@ -7,6 +7,7 @@ import numpy as np
 from scipy.io import savemat
 from ops import *
 import cPickle
+from dataset import UTKFace
 
 
 class FaceAging_CGAN(object):
@@ -14,13 +15,13 @@ class FaceAging_CGAN(object):
         self,
         session,  # TensorFlow session
         size_image=128,  # size the input images
-        size_kernel=4,  # size of the kernels in convolution and deconvolution
+        size_kernel=4,
         size_batch=100,  # mini-batch size for training and testing, must be square of an integer
         num_input_channels=3,  # number of channels of input images
         num_encoder_channels=64,  # number of channels of the first conv layer of encoder
-        num_z_channels=50,  # number of channels of the layer z (noise or code)
+        num_z_channels=100,
         num_categories=10,  # number of categories (age segments) in the training dataset
-        num_gen_channels=1024,  # number of channels of the first deconv layer of generator
+        num_gen_channels=512,
         enable_tile_label=True,  # enable to tile the label
         tile_ratio=1.0,  # ratio of the length between tiled label and z
         is_training=True,  # flag for training or testing mode
@@ -181,22 +182,8 @@ class FaceAging_CGAN(object):
         use_trained_model=True,  # use the saved checkpoint to initialize the network
     ):
 
-        # *************************** load file names of images ******************************************************
-        file_names = glob(os.path.join('./data', self.dataset_name, '*.jpg'))
-        size_data = len(file_names)
-        np.random.seed(seed=2017)
-        if enable_shuffle:
-            np.random.shuffle(file_names)
-
         # set learning rate decay
         self.EG_global_step = tf.Variable(0, trainable=False, name='global_step')
-        # EG_learning_rate = tf.train.exponential_decay(
-        #     learning_rate=learning_rate,
-        #     global_step=self.EG_global_step,
-        #     decay_steps=size_data / self.size_batch * 2,
-        #     decay_rate=decay_rate,
-        #     staircase=True
-        # )
 
         # optimizer for encoder + generator
         with tf.variable_scope('opt', reuse=tf.AUTO_REUSE):
@@ -239,17 +226,15 @@ class FaceAging_CGAN(object):
         self.summary = tf.summary.merge(self.summary_list)
         self.writer = tf.summary.FileWriter(os.path.join(self.save_dir, 'summary'), self.session.graph)
 
-        # ************* get some random samples as testing data to visualize the learning process *********************
-        print("\n\tLoading Dataset...")
-        sample_files = file_names[0:self.size_batch]
-        file_names[0:self.size_batch] = []
-        sample_images, sample_label_age, sample_label_gender = self.get_dataset(sample_files)
+        # *************************** load file names of images ******************************************************
 
-        if not os.path.exists(os.path.join(self.save_dir, 'test')):
-            os.makedirs(os.path.join(self.save_dir, 'test'))
-        cache_file = os.path.join(self.save_dir, 'test', 'test_files.pkl')
-        with open(cache_file, 'wb') as fid:
-            cPickle.dump(sample_files, fid, cPickle.HIGHEST_PROTOCOL)
+        print("\n\tLoading Dataset...")
+        if self.dataset_name == 'UTKFace':
+            self.dataset = UTKFace()
+
+        file_names = self.dataset.train_list
+        sample_files = self.dataset.test_list
+        sample_images, sample_label_age, sample_label_gender = self.dataset.get_dataset(sample_files)
         
         # ******************************************* training *******************************************************
         # initialize the graph
@@ -272,7 +257,7 @@ class FaceAging_CGAN(object):
 
                 # read batch images and labels
                 batch_files = file_names[ind_batch*self.size_batch:(ind_batch+1)*self.size_batch]
-                batch_images, batch_label_age, batch_label_gender = self.get_dataset(batch_files)
+                batch_images, batch_label_age, batch_label_gender = self.dataset.get_dataset(batch_files)
 
                 # prior distribution on the prior of z
                 batch_z_prior = np.random.uniform(
@@ -351,52 +336,6 @@ class FaceAging_CGAN(object):
         # close the summary writer
         self.writer.close()
 
-    def get_dataset(self, sample_files):
-        sample = [load_image(
-            image_path=sample_file,
-            image_size=self.size_image,
-            image_value_range=self.image_value_range,
-            is_gray=(self.num_input_channels == 1),
-        ) for sample_file in sample_files]
-        if self.num_input_channels == 1:
-            sample_images = np.array(sample).astype(np.float32)[:, :, :, None]
-        else:
-            sample_images = np.array(sample).astype(np.float32)
-        sample_label_age = np.ones(
-            shape=(len(sample_files), self.num_categories),
-            dtype=np.float32
-        ) * self.image_value_range[0]
-        sample_label_gender = np.ones(
-            shape=(len(sample_files), 2),
-            dtype=np.float32
-        ) * self.image_value_range[0]
-        for i, label in enumerate(sample_files):
-            label = int(str(sample_files[i]).split('/')[-1].split('_')[0])
-            if 0 <= label <= 5:
-                label = 0
-            elif 6 <= label <= 10:
-                label = 1
-            elif 11 <= label <= 15:
-                label = 2
-            elif 16 <= label <= 20:
-                label = 3
-            elif 21 <= label <= 30:
-                label = 4
-            elif 31 <= label <= 40:
-                label = 5
-            elif 41 <= label <= 50:
-                label = 6
-            elif 51 <= label <= 60:
-                label = 7
-            elif 61 <= label <= 70:
-                label = 8
-            else:
-                label = 9
-            sample_label_age[i, label] = self.image_value_range[-1]
-            gender = int(str(sample_files[i]).split('/')[-1].split('_')[1])
-            sample_label_gender[i, gender] = self.image_value_range[-1]
-            return sample_images, sample_label_age, sample_label_gender
-
     def encoder(self, image, is_training=True, reuse_variables=False, enable_bn=True):
         if reuse_variables:
             tf.get_variable_scope().reuse_variables()
@@ -439,12 +378,12 @@ class FaceAging_CGAN(object):
         num_layers = int(np.log2(self.size_image)) - int(self.size_kernel / 2)
         size_mini_map = int(self.size_image / 2 ** num_layers)
 
-        z = tf.reshape(z, [-1, 1, 1, 50])
-        current_z = self.generator_head(z, 'z', 50, 512, enable_bn, is_training, reuse_variables)
-        y = tf.reshape(y, [-1, 1, 1, 10])
-        current_age = self.generator_head(y, 'age', 10, 512, enable_bn, is_training, reuse_variables)
+        # z = tf.reshape(z, [-1, 1, 1, self.num_z_channels])
+        current_z = self.generator_head(z, 'z', self.num_z_channels, self.num_gen_channels/2, enable_bn, is_training, reuse_variables)
+        # y = tf.reshape(y, [-1, 1, 1, self.num_categories])
+        current_age = self.generator_head(y, 'age', self.num_categories, self.num_gen_channels/2, enable_bn, is_training, reuse_variables)
         gender = tf.reshape(gender, [-1, 1, 1, 2])
-        current_gender = self.generator_head(gender, 'gender', 2, 512, enable_bn, is_training, reuse_variables)
+        current_gender = self.generator_head(gender, 'gender', 2, self.num_gen_channels/2, enable_bn, is_training, reuse_variables)
         current = tf.concat(axis=3, values=[current_z, current_age, current_gender])
         self.gen_z_concat_summary = tf.summary.histogram('gen_z_concat', current_z)
         self.gen_age_concat_summary = tf.summary.histogram('gen_age_concat', current_age)
@@ -452,7 +391,7 @@ class FaceAging_CGAN(object):
 
 
         # deconv layers with stride 2
-        for i in range(num_layers):
+        for i in range(num_layers-1):
             name = 'G_deconv' + str(i)
             current = deconv2d(
                     input_map=current,
@@ -473,19 +412,8 @@ class FaceAging_CGAN(object):
                     reuse=reuse_variables
                 )
             current = tf.nn.relu(current)
+
         name = 'G_deconv' + str(i+1)
-        current = deconv2d(
-            input_map=current,
-            output_shape=[self.size_batch,
-                          self.size_image,
-                          self.size_image,
-                          int(self.num_gen_channels / 2 ** (i + 2))],
-            size_kernel=self.size_kernel,
-            stride=1,
-            name=name
-        )
-        current = tf.nn.relu(current)
-        name = 'G_deconv' + str(i + 2)
         current = deconv2d(
             input_map=current,
             output_shape=[self.size_batch,
@@ -493,21 +421,17 @@ class FaceAging_CGAN(object):
                           self.size_image,
                           self.num_input_channels],
             size_kernel=self.size_kernel,
-            stride=1,
             name=name
         )
-
         # output
         return tf.nn.tanh(current)
 
-    def discriminator(self, image, y, gender, is_training=True, reuse_variables=False, enable_tile_label=True, num_hidden_layer_channels=(16, 32, 64, 128), enable_bn=True):
+    def discriminator(self, image, y, gender, is_training=True, reuse_variables=False, enable_tile_label=True, enable_bn=True):
         if reuse_variables:
             tf.get_variable_scope().reuse_variables()
-        num_layers = len(num_hidden_layer_channels)
+        num_layers = int(np.log2(self.size_image)) - int(self.size_kernel / 2)
         current = image
-        # conv layers with stride 2
 
-        num_hidden_layer_channels = (48, 128, 256, 512, 1024)
         for i in range(num_layers):
             if i == 0:
                 y_shape = y.get_shape().as_list()
@@ -521,19 +445,19 @@ class FaceAging_CGAN(object):
                 gender = gender*tf.ones([current_shape[0], current_shape[1], current_shape[2], gender_shape[-1]])
 
                 name = 'D_conv0'
-                current = conv2d(input_map=current, num_output_channels=16, name=name)
+                current = conv2d(input_map=current, num_output_channels=self.num_encoder_channels/4, name=name)
                 if enable_bn:
                     name = 'D_bn0'
                     current = tf.contrib.layers.batch_norm(current, scale=False, is_training=is_training, scope=name, reuse=reuse_variables)
 
                 name = 'D_conv0_y'
-                y = conv2d(input_map=y, num_output_channels=16, name=name)
+                y = conv2d(input_map=y, num_output_channels=self.num_encoder_channels/4, name=name)
                 if enable_bn:
                     name = 'D_bn0_y'
                     y = tf.contrib.layers.batch_norm(y, scale=False, is_training=is_training, scope=name, reuse=reuse_variables)
 
                 name = 'D_conv0_gender'
-                gender = conv2d(input_map=gender, num_output_channels=16, name=name)
+                gender = conv2d(input_map=gender, num_output_channels=self.num_encoder_channels/4, name=name)
                 if enable_bn:
                     name = 'D_bn0_gender'
                     gender = tf.contrib.layers.batch_norm(gender, scale=False, is_training=is_training, scope=name, reuse=reuse_variables)
@@ -544,7 +468,7 @@ class FaceAging_CGAN(object):
                 name = 'D_conv' + str(i)
                 current = conv2d(
                         input_map=current,
-                        num_output_channels=num_hidden_layer_channels[i],
+                        num_output_channels=self.num_encoder_channels*(2**i),
                         name=name
                     )
                 if enable_bn:
@@ -573,10 +497,10 @@ class FaceAging_CGAN(object):
         num_layers = int(np.log2(self.size_image)) - int(self.size_kernel / 2)
         size_mini_map = int(self.size_image / 2 ** num_layers)
 
-        current = tf.reshape(current, [-1, 1, 1, num_channels_in])
+        current = tf.reshape(current, [-1, 1, 1, int(num_channels_in)])
         current = deconv2d(
                 input_map=current,
-                output_shape=[self.size_batch, size_mini_map, size_mini_map, num_channels_out],
+                output_shape=[self.size_batch, size_mini_map, size_mini_map, int(num_channels_out)],
                 size_kernel=self.size_kernel,
                 padding='VALID',
                 name='G_init_'+name
@@ -664,8 +588,9 @@ class FaceAging_CGAN(object):
         batch_z_prior = np.random.uniform(
             self.image_value_range[0],
             self.image_value_range[-1],
-            [self.size_batch, self.num_z_channels]
+            [self.num_categories, self.num_z_channels]
         ).astype(np.float32)
+        query_z = np.tile(batch_z_prior, [self.num_categories, 1])
 
         gen_image = self.session.run(
             self.gen_image,
@@ -673,7 +598,7 @@ class FaceAging_CGAN(object):
                 self.input_image: query_images,
                 self.age: query_labels,
                 self.gender: query_gender,
-                self.z_prior: batch_z_prior
+                self.z_prior: query_z
             }
         )
         save_batch_images(
