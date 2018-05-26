@@ -169,7 +169,7 @@ class IMDBWIKI(imdb):
         super(IMDBWIKI, self).__init__('IMDBWIKI', size_image, image_value_range, num_categories)
         self._info = self._load_info()              ## age, path, gender
         self._namelist_ind = self._load_namelist_ind()      ## ind_list instead of filename_list
-        self._train_ind = self._namelist_ind[:-100]
+        self._train_ind = self._namelist_ind[:100000]
         self._test_ind = self._namelist_ind[-100:]
         self._save_test_pkl()
 

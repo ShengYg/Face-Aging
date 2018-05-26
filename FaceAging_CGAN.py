@@ -7,7 +7,7 @@ import numpy as np
 from scipy.io import savemat
 from ops import *
 import cPickle
-from dataset import UTKFace
+from dataset import UTKFace, IMDBWIKI
 
 
 class FaceAging_CGAN(object):
@@ -20,7 +20,6 @@ class FaceAging_CGAN(object):
         num_input_channels=3,  # number of channels of input images
         num_encoder_channels=64,  # number of channels of the first conv layer of encoder
         num_z_channels=100,
-        num_categories=10,  # number of categories (age segments) in the training dataset
         num_gen_channels=512,
         enable_tile_label=True,  # enable to tile the label
         tile_ratio=1.0,  # ratio of the length between tiled label and z
@@ -38,7 +37,6 @@ class FaceAging_CGAN(object):
         self.num_input_channels = num_input_channels
         self.num_encoder_channels = num_encoder_channels
         self.num_z_channels = num_z_channels
-        self.num_categories = num_categories
         self.num_gen_channels = num_gen_channels
         self.enable_tile_label = enable_tile_label
         self.tile_ratio = tile_ratio
@@ -47,6 +45,7 @@ class FaceAging_CGAN(object):
         self.load_dir = load_dir
         self.dataset_name = dataset_name
         self.model = model
+        self.num_categories = 10 if self.dataset_name == 'UTKFace' else 6
 
         # ************************************* input to graph ********************************************************
         self.input_image = tf.placeholder(
@@ -228,12 +227,15 @@ class FaceAging_CGAN(object):
 
         # *************************** load file names of images ******************************************************
 
-        print("\n\tLoading Dataset...")
+        
+        print("\n\tLoading Dataset {}...".format(self.dataset_name))
         if self.dataset_name == 'UTKFace':
-            self.dataset = UTKFace()
+            self.dataset = UTKFace(in_memory=False)
+        elif self.dataset_name == 'IW':
+            self.dataset = IMDBWIKI()
 
-        file_names = self.dataset.train_list
-        sample_files = self.dataset.test_list
+        file_names = self.dataset.train_ind
+        sample_files = self.dataset.test_ind
         sample_images, sample_label_age, sample_label_gender = self.dataset.get_dataset(sample_files)
         
         # ******************************************* training *******************************************************
@@ -252,12 +254,17 @@ class FaceAging_CGAN(object):
             if enable_shuffle:
                 np.random.shuffle(file_names)
 
+            # name = '{:02d}.png'.format(epoch+1)
+            # self.sample(sample_images, sample_label_age, sample_label_gender, name)
+            # self.test(sample_images, sample_label_gender, name)
             for ind_batch in range(num_batches):
                 start_time = time.time()
 
                 # read batch images and labels
                 batch_files = file_names[ind_batch*self.size_batch:(ind_batch+1)*self.size_batch]
+                # st = time.time()
                 batch_images, batch_label_age, batch_label_gender = self.dataset.get_dataset(batch_files)
+                # print(time.time() - st)
 
                 # prior distribution on the prior of z
                 batch_z_prior = np.random.uniform(
@@ -572,46 +579,49 @@ class FaceAging_CGAN(object):
         test_dir = os.path.join(self.save_dir, 'test')
         if not os.path.exists(test_dir):
             os.makedirs(test_dir)
-        images = images[:int(np.sqrt(self.size_batch)), :, :, :]
-        gender = gender[:int(np.sqrt(self.size_batch)), :]
-        size_sample = images.shape[0]
-        labels = np.arange(size_sample)
-        labels = np.repeat(labels, size_sample)
+
+        height = self.num_categories
+        width = int(np.ceil(self.size_batch/ height))
+        images = images[:width, :, :, :]
+        gender = gender[:width, :]
+        # size_sample = images.shape[0]
+        labels = np.arange(height)
+        labels = np.repeat(labels, width)
         query_labels = np.ones(
-            shape=(size_sample ** 2, size_sample),
+            shape=(height*width, height),
             dtype=np.float32
         ) * self.image_value_range[0]
         for i in range(query_labels.shape[0]):
             query_labels[i, labels[i]] = self.image_value_range[-1]
-        query_images = np.tile(images, [self.num_categories, 1, 1, 1])
-        query_gender = np.tile(gender, [self.num_categories, 1])
+        query_images = np.tile(images, [height, 1, 1, 1])
+        query_gender = np.tile(gender, [height, 1])
         batch_z_prior = np.random.uniform(
             self.image_value_range[0],
             self.image_value_range[-1],
-            [self.num_categories, self.num_z_channels]
+            [width, self.num_z_channels]
         ).astype(np.float32)
-        query_z = np.tile(batch_z_prior, [self.num_categories, 1])
+        query_z = np.tile(batch_z_prior, [height, 1])
 
         gen_image = self.session.run(
             self.gen_image,
             feed_dict={
-                self.input_image: query_images,
-                self.age: query_labels,
-                self.gender: query_gender,
-                self.z_prior: query_z
+                self.input_image: query_images[:self.size_batch],
+                self.age: query_labels[:self.size_batch],
+                self.gender: query_gender[:self.size_batch],
+                self.z_prior: query_z[:self.size_batch]
             }
         )
         save_batch_images(
             batch_images=query_images,
             save_path=os.path.join(test_dir, 'input.png'),
             image_value_range=self.image_value_range,
-            size_frame=[size_sample, size_sample]
+            size_frame=[height, width]
         )
         save_batch_images(
             batch_images=gen_image,
             save_path=os.path.join(test_dir, name),
             image_value_range=self.image_value_range,
-            size_frame=[size_sample, size_sample]
+            size_frame=[height, width]
         )
 
     def custom_test(self, testing_samples_dir):
