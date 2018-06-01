@@ -452,7 +452,7 @@ class FaceAging_AAE(object):
             sample_label_age[i, label] = self.image_value_range[-1]
             gender = int(str(sample_files[i]).split('/')[-1].split('_')[1])
             sample_label_gender[i, gender] = self.image_value_range[-1]
-            return sample_images, sample_label_age, sample_label_gender
+        return sample_images, sample_label_age, sample_label_gender
 
     def encoder(self, image, is_training=True, reuse_variables=False, enable_bn=True):
         if reuse_variables:

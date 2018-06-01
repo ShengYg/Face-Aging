@@ -4,3 +4,5 @@ data/
 demo/
 init_model/
 save/
+save_CGAN/
+save_en/

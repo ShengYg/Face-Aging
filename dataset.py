@@ -6,6 +6,8 @@ import cPickle
 import time
 from progressbar import ProgressBar
 
+import tensorflow as tf
+
 class imdb(object):
     def __init__(self, name, size_image=64, image_value_range=(-1,1), num_categories=10):
         self._name = name
@@ -62,107 +64,161 @@ class imdb(object):
         return image
 
 
-class UTKFace(imdb):
-    def __init__(self, size_image=64, image_value_range=(-1,1), num_categories=10, in_memory=False):
-        super(UTKFace, self).__init__('UTKFace', size_image, image_value_range, num_categories)
-        self._root_dir = os.path.join('./data', self.name)
-        self._info = self._load_info()                  ## file_name in order
-        self._namelist_ind = self._load_ind()           ## ind -> filename
-        self._train_ind = self._namelist_ind[:-100]
-        self._test_ind = self._namelist_ind[-100:]
-        self._save_test_pkl()
-        self._in_memory = in_memory
-        if self._in_memory:
-            print('\tLoading into memory ...')
-            self._imgs = self._load_imgs()              ## uint8
-            self._name2ind = self._get_name2ind()
+# class UTKFace(imdb):
+#     def __init__(self, size_image=64, image_value_range=(-1,1), num_categories=10, in_memory=False):
+#         super(UTKFace, self).__init__('UTKFace', size_image, image_value_range, num_categories)
+#         self._root_dir = os.path.join('./data', self.name)
+#         self._info = self._load_info()                  ## file_name in order
+#         self._namelist_ind = self._load_ind()           ## ind -> filename
+#         self._train_ind = self._namelist_ind[:-100]
+#         self._test_ind = self._namelist_ind[-100:]
+#         self._save_test_pkl()
+#         self._in_memory = in_memory
+#         if self._in_memory:
+#             print('\tLoading into memory ...')
+#             self._imgs = self._load_imgs()              ## uint8
+#             self._name2ind = self._get_name2ind()
 
-    def _load_info(self):
-        info_path = sorted(os.listdir(self._root_dir))
-        return [os.path.join(self.name, item) for item in info_path]
+#     def _load_info(self):
+#         info_path = sorted(os.listdir(self._root_dir))
+#         return [os.path.join(self.name, item) for item in info_path]
 
-    def _load_ind(self):
-        ind = range(len(self._info))
-        np.random.shuffle(ind)
-        return ind
+#     def _load_ind(self):
+#         ind = range(len(self._info))
+#         np.random.shuffle(ind)
+#         return ind
 
-    def _load_imgs(self):
-        ret = []
-        pbar = ProgressBar(maxval=len(self._info))
-        pbar.start()
-        i = 0
-        for i, item in enumerate(self._info):
-            ret.append(imread(os.path.join('./data', item), mode='RGB'))
-            pbar.update(i)
-        pbar.finish()
-        return ret
+#     def _load_imgs(self):
+#         ret = []
+#         pbar = ProgressBar(maxval=len(self._info))
+#         pbar.start()
+#         i = 0
+#         for i, item in enumerate(self._info):
+#             ret.append(imread(os.path.join('./data', item), mode='RGB'))
+#             pbar.update(i)
+#         pbar.finish()
+#         return ret
 
-    def _get_name2ind(self):
-        ret = {}
-        for i in range(len(self._info)):
-            ret[self._info[i]] = i
-        return ret
+#     def _get_name2ind(self):
+#         ret = {}
+#         for i in range(len(self._info)):
+#             ret[self._info[i]] = i
+#         return ret
 
-    def _save_test_pkl(self):
-        cache_file = os.path.join('./data', 'UTK_test_files.pkl')
-        with open(cache_file, 'wb') as fid:
-            cPickle.dump(self._test_ind, fid, cPickle.HIGHEST_PROTOCOL)
+#     def _save_test_pkl(self):
+#         cache_file = os.path.join('./data', 'UTK_test_files.pkl')
+#         with open(cache_file, 'wb') as fid:
+#             cPickle.dump(self._test_ind, fid, cPickle.HIGHEST_PROTOCOL)
 
-    def get_dataset(self, sample_inds):
-        if self._in_memory:
-            sample = []
-            for sample_ind in sample_inds:
-                image = self._imgs[self._name2ind[self._info[sample_ind]]].astype(np.float32)
-                image = imresize(image, [self.size_image, self.size_image])
-                image = image.astype(np.float32) * (self.image_value_range[-1] - self.image_value_range[0]) / 255.0 + self.image_value_range[0]
-                sample.append(image)
-        else:
-            sample = [self.load_image(
-                image_path=self._info[sample_ind],
-                image_size=self.size_image,
-                image_value_range=self.image_value_range,
-                is_gray=False,
-            ) for sample_ind in sample_inds]
-        sample_images = np.array(sample).astype(np.float32)
+#     def get_dataset(self, sample_inds):
+#         if self._in_memory:
+#             sample = []
+#             for sample_ind in sample_inds:
+#                 image = self._imgs[self._name2ind[self._info[sample_ind]]].astype(np.float32)
+#                 image = imresize(image, [self.size_image, self.size_image])
+#                 image = image.astype(np.float32) * (self.image_value_range[-1] - self.image_value_range[0]) / 255.0 + self.image_value_range[0]
+#                 sample.append(image)
+#         else:
+#             sample = [self.load_image(
+#                 image_path=self._info[sample_ind],
+#                 image_size=self.size_image,
+#                 image_value_range=self.image_value_range,
+#                 is_gray=False,
+#             ) for sample_ind in sample_inds]
+#         sample_images = np.array(sample).astype(np.float32)
 
-        sample_label_age = np.ones(
-            shape=(len(sample_inds), self.num_categories),
-            dtype=np.float32
-        ) * self.image_value_range[0]
+#         sample_label_age = np.ones(
+#             shape=(len(sample_inds), self.num_categories),
+#             dtype=np.float32
+#         ) * self.image_value_range[0]
 
-        sample_label_gender = np.ones(
-            shape=(len(sample_inds), 2),
-            dtype=np.float32
-        ) * self.image_value_range[0]
+#         sample_label_gender = np.ones(
+#             shape=(len(sample_inds), 2),
+#             dtype=np.float32
+#         ) * self.image_value_range[0]
 
-        for i, ind in enumerate(sample_inds):
-            sample_file = self._info[ind]
-            label = int(str(sample_file).split('/')[-1].split('_')[0])
-            if 0 <= label <= 5:
-                label = 0
-            elif 6 <= label <= 10:
-                label = 1
-            elif 11 <= label <= 15:
-                label = 2
-            elif 16 <= label <= 20:
-                label = 3
-            elif 21 <= label <= 30:
-                label = 4
-            elif 31 <= label <= 40:
-                label = 5
-            elif 41 <= label <= 50:
-                label = 6
-            elif 51 <= label <= 60:
-                label = 7
-            elif 61 <= label <= 70:
-                label = 8
-            else:
-                label = 9
-            sample_label_age[i, label] = self.image_value_range[-1]
-            gender = int(str(sample_file).split('/')[-1].split('_')[1])
-            sample_label_gender[i, gender] = self.image_value_range[-1]
-        return sample_images, sample_label_age, sample_label_gender
+#         for i, ind in enumerate(sample_inds):
+#             sample_file = self._info[ind]
+#             label = int(str(sample_file).split('/')[-1].split('_')[0])
+#             if 0 <= label <= 5:
+#                 label = 0
+#             elif 6 <= label <= 10:
+#                 label = 1
+#             elif 11 <= label <= 15:
+#                 label = 2
+#             elif 16 <= label <= 20:
+#                 label = 3
+#             elif 21 <= label <= 30:
+#                 label = 4
+#             elif 31 <= label <= 40:
+#                 label = 5
+#             elif 41 <= label <= 50:
+#                 label = 6
+#             elif 51 <= label <= 60:
+#                 label = 7
+#             elif 61 <= label <= 70:
+#                 label = 8
+#             else:
+#                 label = 9
+#             sample_label_age[i, label] = self.image_value_range[-1]
+#             gender = int(str(sample_file).split('/')[-1].split('_')[1])
+#             sample_label_gender[i, gender] = self.image_value_range[-1]
+#         return sample_images, sample_label_age, sample_label_gender
 
+class UTKFace(object):
+    def __init__(self, size_image=64, num_categories=10, data_path=None, batch_size=100, num_epochs=300, shuffle_buffer=500, prefetch_buffer_size=100 , map_parallel=1 ,):
+        self._size_image = size_image
+        self._num_categories = num_categories
+        self._batch_size = batch_size
+        self._num_epochs = num_epochs
+        self._data_path = os.path.join('data', 'UTKFace_16_tfrecords') if not data_path else data_path
+        self._shuffle_buffer = shuffle_buffer
+        self._prefetch_buffer_size = prefetch_buffer_size
+        self._map_parallel = map_parallel
+
+    def parse_fn(self, serial_exmp):  
+        feats = tf.parse_single_example(serial_exmp, features={
+            'image':tf.FixedLenFeature([], tf.string),
+            'age':tf.FixedLenFeature([], tf.int64),
+            'gender':tf.FixedLenFeature([], tf.int64),
+            })
+        image = tf.decode_raw(feats['image'], tf.uint8)
+        image = tf.reshape(image, [128, 128, 3])
+        image = tf.cast(image, tf.float32)
+        image = tf.image.resize_images(image, [self._size_image, self._size_image])
+        image = image / 127.5 - 1.0
+
+        age = tf.one_hot(feats['age'], self._num_categories, off_value=-1.0, axis=-1)
+        gender = tf.one_hot(feats['gender'], 2, off_value=-1.0, axis=-1)
+
+
+
+        return image, age, gender
+
+    def input_pipeline_new(self, tfrecords_list, shuffle=False, prefetch=False):
+        dataset = tf.data.TFRecordDataset(tfrecords_list)
+        if prefetch:
+            dataset = dataset.prefetch(buffer_size=self._prefetch_buffer_size)
+        if shuffle:
+            dataset = dataset.apply(tf.contrib.data.shuffle_and_repeat(buffer_size=self._shuffle_buffer, count=self._num_epochs))
+        dataset = dataset.apply(tf.contrib.data.map_and_batch(
+                map_func=self.parse_fn, 
+                batch_size=self._batch_size, 
+                num_parallel_batches=self._map_parallel,
+                drop_remainder=True))
+        if prefetch:
+            dataset = dataset.prefetch(buffer_size=tf.contrib.data.AUTOTUNE)
+        
+        return dataset
+
+    def get_dataset(self):
+        tfrecords_list = sorted(os.listdir(self._data_path))
+        tfrecords_list = [os.path.join(self._data_path, item) for item in tfrecords_list]
+
+        train_dataset = self.input_pipeline_new(tfrecords_list[:-1], shuffle=True, prefetch=True)
+        test_dataset = self.input_pipeline_new(tfrecords_list[-1], shuffle=False, prefetch=False)
+
+        return train_dataset, test_dataset
 
 class IMDBWIKI(imdb):
     def __init__(self, size_image=64, image_value_range=(-1,1), num_categories=6):
